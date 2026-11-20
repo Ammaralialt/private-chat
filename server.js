@@ -208,7 +208,7 @@ function getMemberRole(roomId, username) {
   return m ? m.role : 'member';
 }
 
-// âââ REST âââ
+// ─── REST ───
 app.post('/api/rooms', (req, res) => {
   const { name, username, password } = req.body;
   if (!name || !username) return res.status(400).json({ error: 'name and username required' });
@@ -218,7 +218,7 @@ app.post('/api/rooms', (req, res) => {
     dbRun('INSERT INTO rooms (id,name,invite_code,created_by,password_hash) VALUES(?,?,?,?,?)', [id, name.trim(), inviteCode, username.trim(), pwHash]);
     dbRun('INSERT OR IGNORE INTO members (room_id,username,avatar_color,role) VALUES(?,?,?,?)', [id, username.trim(), randomColor(), 'admin']);
     // Create default channel
-    try { dbRun('INSERT OR IGNORE INTO channels (room_id,name,created_by) VALUES(?,?,?)', [id, 'Ø¹Ø§Ù', username.trim()]); } catch(e){}
+    try { dbRun('INSERT OR IGNORE INTO channels (room_id,name,created_by) VALUES(?,?,?)', [id, 'عام', username.trim()]); } catch(e){}
     logAudit(id, 'room_created', username.trim());
     res.json({ roomId: id, inviteCode, hasPassword: !!password });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -228,13 +228,13 @@ app.post('/api/rooms/join', (req, res) => {
   const { inviteCode, username, password } = req.body;
   if (!inviteCode || !username) return res.status(400).json({ error: 'inviteCode and username required' });
   const room = dbGet('SELECT * FROM rooms WHERE invite_code = ?', [inviteCode.trim()]);
-  if (!room) return res.status(404).json({ error: 'ÙÙØ¯ Ø§ÙØ¯Ø¹ÙØ© ØºÙØ± ØµØ­ÙØ­' });
-  if (room.is_locked) return res.status(403).json({ error: 'Ø§ÙØºØ±ÙØ© ÙÙÙÙØ©' });
+  if (!room) return res.status(404).json({ error: 'كود الدعوة غير صحيح' });
+  if (room.is_locked) return res.status(403).json({ error: 'الغرفة مقفلة' });
   if (dbGet('SELECT 1 FROM bans WHERE room_id=? AND username=?', [room.id, username.trim()]))
-    return res.status(403).json({ error: 'Ø£ÙØª ÙØ­Ø¸ÙØ± ÙÙ ÙØ°Ù Ø§ÙØºØ±ÙØ©' });
+    return res.status(403).json({ error: 'أنت محظور من هذه الغرفة' });
   if (room.password_hash) {
-    if (!password) return res.status(401).json({ error: 'ÙØ°Ù Ø§ÙØºØ±ÙØ© ØªØ­ØªØ§Ø¬ ÙÙÙØ© Ø³Ø±', needsPassword: true });
-    if (hashPw(password) !== room.password_hash) return res.status(401).json({ error: 'ÙÙÙØ© Ø§ÙØ³Ø± ØºÙØ·' });
+    if (!password) return res.status(401).json({ error: 'هذه الغرفة تحتاج كلمة سر', needsPassword: true });
+    if (hashPw(password) !== room.password_hash) return res.status(401).json({ error: 'كلمة السر غلط' });
   }
   try {
     dbRun('INSERT OR IGNORE INTO members (room_id,username,avatar_color,role) VALUES(?,?,?,?)', [room.id, username.trim(), randomColor(), 'member']);
@@ -263,7 +263,7 @@ app.get('/api/rooms/:id/members', (req, res) => {
 app.get('/api/rooms/:id/messages', (req, res) => {
   const room = dbGet('SELECT * FROM rooms WHERE id = ?', [req.params.id]);
   if (!room) return res.status(404).json({ error: 'Room not found' });
-  const channel = req.query.channel || 'Ø¹Ø§Ù';
+  const channel = req.query.channel || 'عام';
   const username = req.query.username || '';
   const msgs = dbAll('SELECT * FROM messages WHERE room_id = ? AND channel = ? ORDER BY timestamp ASC LIMIT 200', [room.id, channel]);
   // Filter out hidden messages
@@ -312,7 +312,7 @@ app.get('/api/rooms/:id/dms', (req, res) => {
   res.json(dms);
 });
 
-// âââ WebSocket âââ
+// ─── WebSocket ───
 const activeUsers = new Map();
 const userStatuses = new Map(); // roomId_username -> status
 
@@ -324,7 +324,7 @@ function getUser(socket) {
 
 io.on('connection', (socket) => {
 
-  // âââ JOIN ROOM âââ
+  // ─── JOIN ROOM ───
   // Client sends: {roomId, username, inviteCode, password}
   // Client expects: 'room-info' {name, role, locked, disappearingMinutes, channels}
   //                 'messages' [array of messages for default channel]
@@ -332,7 +332,7 @@ io.on('connection', (socket) => {
     if (!roomId || !username) return;
     const uname = username.trim();
     if (!dbGet('SELECT 1 FROM members WHERE room_id=? AND username=?', [roomId, uname])) {
-      socket.emit('error', { message: 'Ø£ÙØª ÙÙ Ø¹Ø¶Ù Ø¨ÙØ°Ù Ø§ÙØºØ±ÙØ©' }); return;
+      socket.emit('error', { message: 'أنت مو عضو بهذه الغرفة' }); return;
     }
     socket.join(roomId);
     activeUsers.set(socket.id, { roomId, username: uname });
@@ -345,11 +345,11 @@ io.on('connection', (socket) => {
     socket.emit('room-info', {
       name: room.name, role, locked: !!room.is_locked,
       disappearingMinutes: room.disappearing_minutes,
-      channels: channels.length ? channels : ['Ø¹Ø§Ù']
+      channels: channels.length ? channels : ['عام']
     });
 
-    // Emit initial messages for default channel 'Ø¹Ø§Ù'
-    const msgs = dbAll('SELECT * FROM messages WHERE room_id=? AND channel=? ORDER BY timestamp ASC LIMIT 200', [roomId, 'Ø¹Ø§Ù']);
+    // Emit initial messages for default channel 'عام'
+    const msgs = dbAll('SELECT * FROM messages WHERE room_id=? AND channel=? ORDER BY timestamp ASC LIMIT 200', [roomId, 'عام']);
     const hiddenIds = dbAll('SELECT message_id FROM hidden_messages WHERE room_id=? AND username=?', [roomId, uname]).map(h => h.message_id);
     const filtered = msgs.filter(m => !hiddenIds.includes(m.id));
     const ids = filtered.map(m => m.id);
@@ -367,9 +367,9 @@ io.on('connection', (socket) => {
     broadcastOnline(roomId);
   });
 
-  // âââ SEND MESSAGE âââ
+  // ─── SEND MESSAGE ───
   // Client sends: {roomId, encrypted_content, iv, message_type, reply_to, edit_id, channel}
-  // NOTE: no 'sender' â we get it from activeUsers
+  // NOTE: no 'sender' — we get it from activeUsers
   socket.on('send-message', ({ roomId, encrypted_content, iv, message_type, reply_to, edit_id, channel }) => {
     const sender = getUser(socket);
     if (!roomId || !sender || !encrypted_content || !iv) return;
@@ -378,7 +378,7 @@ io.on('connection', (socket) => {
     // If edit_id is set, this is an edit
     if (edit_id) {
       const msg = dbGet('SELECT * FROM messages WHERE id=? AND room_id=?', [edit_id, roomId]);
-      if (!msg || msg.sender !== sender) { socket.emit('error', { message: 'ÙØ§ ØªÙØ¯Ø± ØªØ¹Ø¯Ù ÙØ°Ù Ø§ÙØ±Ø³Ø§ÙØ©' }); return; }
+      if (!msg || msg.sender !== sender) { socket.emit('error', { message: 'ما تكدر تعدل هذه الرسالة' }); return; }
       dbRun('UPDATE messages SET encrypted_content=?, iv=?, is_edited=1 WHERE id=?', [encrypted_content, iv, edit_id]);
       io.to(roomId).emit('message-edited', { messageId: edit_id, encrypted_content, iv });
       return;
@@ -387,7 +387,7 @@ io.on('connection', (socket) => {
     const room = dbGet('SELECT disappearing_minutes FROM rooms WHERE id=?', [roomId]);
     let expiresAt = 0;
     if (room && room.disappearing_minutes > 0) expiresAt = Math.floor(Date.now()/1000) + room.disappearing_minutes * 60;
-    const ch = channel || 'Ø¹Ø§Ù';
+    const ch = channel || 'عام';
     try {
       dbRun('INSERT INTO messages (room_id,sender,encrypted_content,iv,message_type,reply_to,expires_at,channel) VALUES(?,?,?,?,?,?,?,?)',
         [roomId, sender, encrypted_content, iv, message_type||'text', reply_to||null, expiresAt, ch]);
@@ -400,10 +400,10 @@ io.on('connection', (socket) => {
         channel: ch,
         timestamp: Date.now(), reactions: []
       });
-    } catch (e) { socket.emit('error', { message: 'ÙØ´Ù Ø¥Ø±Ø³Ø§Ù Ø§ÙØ±Ø³Ø§ÙØ©' }); }
+    } catch (e) { socket.emit('error', { message: 'فشل إرسال الرسالة' }); }
   });
 
-  // âââ TOGGLE LOCK âââ
+  // ─── TOGGLE LOCK ───
   socket.on('toggle-lock', ({ roomId }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -417,7 +417,7 @@ io.on('connection', (socket) => {
     logAudit(roomId, nw ? 'room_locked' : 'room_unlocked', username);
   });
 
-  // âââ DELETE MESSAGE (for everyone) âââ
+  // ─── DELETE MESSAGE (for everyone) ───
   socket.on('delete-message', ({ roomId, messageId }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -425,7 +425,7 @@ io.on('connection', (socket) => {
     if (!msg) return;
     const role = getMemberRole(roomId, username);
     if (msg.sender !== username && !hasModPower(role)) {
-      socket.emit('error', { message: 'ÙØ§ ØªÙØ¯Ø± ØªØ­Ø°Ù Ø±Ø³Ø§ÙØ© ØºÙØ±Ù' }); return;
+      socket.emit('error', { message: 'ما تكدر تحذف رسالة غيرك' }); return;
     }
     dbRun('DELETE FROM messages WHERE id=? AND room_id=?', [messageId, roomId]);
     dbRun('DELETE FROM reactions WHERE message_id=?', [messageId]);
@@ -433,7 +433,7 @@ io.on('connection', (socket) => {
     logAudit(roomId, 'message_deleted', username, msg.sender);
   });
 
-  // âââ HIDE MESSAGE (delete for me) âââ
+  // ─── HIDE MESSAGE (delete for me) ───
   socket.on('hide-message', ({ roomId, messageId }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -443,12 +443,12 @@ io.on('connection', (socket) => {
     } catch(e){}
   });
 
-  // âââ PIN MESSAGE âââ
+  // ─── PIN MESSAGE ───
   socket.on('pin-message', ({ roomId, messageId }) => {
     const username = getUser(socket);
     if (!username) return;
     const role = getMemberRole(roomId, username);
-    if (!hasModPower(role)) { socket.emit('error', { message: 'ÙÙØ· Ø§ÙØ£Ø¯ÙÙ ÙØ§ÙÙØ´Ø±Ù ÙÙØ¯Ø±ÙÙ ÙØ«Ø¨ØªÙÙ' }); return; }
+    if (!hasModPower(role)) { socket.emit('error', { message: 'فقط الأدمن والمشرف يكدرون يثبتون' }); return; }
     const msg = dbGet('SELECT * FROM messages WHERE id=? AND room_id=?', [messageId, roomId]);
     if (!msg) return;
     const np = msg.is_pinned ? 0 : 1;
@@ -457,11 +457,11 @@ io.on('connection', (socket) => {
     logAudit(roomId, np ? 'message_pinned' : 'message_unpinned', username);
   });
 
-  // âââ CHANGE ROLE âââ (client emits 'change-role')
+  // ─── CHANGE ROLE ─── (client emits 'change-role')
   socket.on('change-role', ({ roomId, targetUsername, newRole }) => {
     const username = getUser(socket);
     if (!username) return;
-    if (getMemberRole(roomId, username) !== 'admin') { socket.emit('error', { message: 'ÙÙØ· Ø§ÙØ£Ø¯ÙÙ ÙÙØ¯Ø± ÙØºÙØ± Ø§ÙØ£Ø¯ÙØ§Ø±' }); return; }
+    if (getMemberRole(roomId, username) !== 'admin') { socket.emit('error', { message: 'فقط الأدمن يكدر يغير الأدوار' }); return; }
     if (targetUsername === username) return;
     if (!['moderator', 'member'].includes(newRole)) return;
     dbRun('UPDATE members SET role=? WHERE room_id=? AND username=?', [newRole, roomId, targetUsername]);
@@ -470,7 +470,7 @@ io.on('connection', (socket) => {
     logAudit(roomId, 'role_changed', username, targetUsername, newRole);
   });
 
-  // âââ CREATE POLL âââ
+  // ─── CREATE POLL ───
   // Client sends: {roomId, question:{encrypted,iv}, options:[{encrypted,iv}], channel}
   socket.on('create-poll', ({ roomId, question, options, channel }) => {
     const sender = getUser(socket);
@@ -486,11 +486,11 @@ io.on('connection', (socket) => {
       io.to(roomId).emit('poll-created', { id: last.id, room_id: roomId, creator: sender,
         encrypted_question: encQ, question_iv: qIv,
         encrypted_options: encOpts, options_iv: '',
-        is_closed: 0, votes: [], channel: channel || 'Ø¹Ø§Ù' });
-    } catch(e) { socket.emit('error', { message: 'ÙØ´Ù Ø¥ÙØ´Ø§Ø¡ Ø§ÙØ§Ø³ØªØ·ÙØ§Ø¹' }); }
+        is_closed: 0, votes: [], channel: channel || 'عام' });
+    } catch(e) { socket.emit('error', { message: 'فشل إنشاء الاستطلاع' }); }
   });
 
-  // âââ VOTE POLL âââ client sends: {roomId, pollId, optionId}
+  // ─── VOTE POLL ─── client sends: {roomId, pollId, optionId}
   socket.on('vote-poll', ({ roomId, pollId, optionId }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -512,7 +512,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('poll-closed', { pollId });
   });
 
-  // âââ SCHEDULE MESSAGE âââ
+  // ─── SCHEDULE MESSAGE ───
   // Client sends: {roomId, encrypted_content, iv, send_at, channel}
   socket.on('schedule-message', ({ roomId, encrypted_content, iv, send_at, channel }) => {
     const sender = getUser(socket);
@@ -523,7 +523,7 @@ io.on('connection', (socket) => {
         [roomId, sender, encrypted_content, iv, 'text', sendAt]);
       const last = dbGet('SELECT last_insert_rowid() as id');
       socket.emit('scheduled-sent', { id: last.id, send_at });
-    } catch(e) { socket.emit('error', { message: 'ÙØ´Ù Ø¬Ø¯ÙÙØ© Ø§ÙØ±Ø³Ø§ÙØ©' }); }
+    } catch(e) { socket.emit('error', { message: 'فشل جدولة الرسالة' }); }
   });
 
   socket.on('cancel-scheduled', ({ roomId, scheduledId }) => {
@@ -533,7 +533,7 @@ io.on('connection', (socket) => {
     socket.emit('scheduled-cancelled', { id: scheduledId });
   });
 
-  // âââ REACT MESSAGE âââ (client emits 'react-message')
+  // ─── REACT MESSAGE ─── (client emits 'react-message')
   socket.on('react-message', ({ roomId, messageId, emoji }) => {
     const username = getUser(socket);
     if (!roomId || !messageId || !username || !emoji) return;
@@ -549,7 +549,7 @@ io.on('connection', (socket) => {
     } catch(e){}
   });
 
-  // âââ READ MESSAGE âââ (client emits 'read-message')
+  // ─── READ MESSAGE ─── (client emits 'read-message')
   socket.on('read-message', ({ roomId, messageId }) => {
     const username = getUser(socket);
     if (!roomId || !messageId || !username) return;
@@ -559,7 +559,7 @@ io.on('connection', (socket) => {
     } catch(e){}
   });
 
-  // âââ SET AVATAR âââ
+  // ─── SET AVATAR ───
   socket.on('set-avatar', ({ roomId, emoji }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -567,7 +567,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('avatar-updated', { username, avatar: emoji });
   });
 
-  // âââ SET STATUS âââ
+  // ─── SET STATUS ───
   socket.on('set-status', ({ roomId, status }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -577,7 +577,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('status-updated', { username, status });
   });
 
-  // âââ CREATE CHANNEL âââ client sends: {roomId, name}
+  // ─── CREATE CHANNEL ─── client sends: {roomId, name}
   socket.on('create-channel', ({ roomId, name }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -589,18 +589,18 @@ io.on('connection', (socket) => {
     } catch(e){}
   });
 
-  // âââ DELETE CHANNEL âââ client sends: {roomId, name}
+  // ─── DELETE CHANNEL ─── client sends: {roomId, name}
   socket.on('delete-channel', ({ roomId, name }) => {
     const username = getUser(socket);
     if (!username) return;
     if (getMemberRole(roomId, username) !== 'admin') return;
-    if (name === 'Ø¹Ø§Ù' || name === 'general') return;
+    if (name === 'عام' || name === 'general') return;
     dbRun('DELETE FROM channels WHERE room_id=? AND name=?', [roomId, name]);
     dbRun('DELETE FROM messages WHERE room_id=? AND channel=?', [roomId, name]);
     io.to(roomId).emit('channel-deleted', { name });
   });
 
-  // âââ SEND DM âââ client sends: {roomId, receiver, encrypted_content, iv}
+  // ─── SEND DM ─── client sends: {roomId, receiver, encrypted_content, iv}
   socket.on('send-dm', ({ roomId, receiver, encrypted_content, iv }) => {
     const sender = getUser(socket);
     if (!roomId || !sender || !receiver || !encrypted_content || !iv) return;
@@ -621,7 +621,7 @@ io.on('connection', (socket) => {
     } catch(e){}
   });
 
-  // âââ READ DM âââ
+  // ─── READ DM ───
   socket.on('read-dm', ({ roomId, peer }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -634,7 +634,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // âââ KICK USER âââ (client emits 'kick-user')
+  // ─── KICK USER ─── (client emits 'kick-user')
   socket.on('kick-user', ({ roomId, targetUsername }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -647,13 +647,13 @@ io.on('connection', (socket) => {
     logAudit(roomId, 'member_kicked', username, targetUsername);
     activeUsers.forEach((v, sid) => {
       if (v.roomId === roomId && v.username === targetUsername) {
-        io.sockets.sockets.get(sid)?.emit('kicked', { message: 'ØªÙ Ø·Ø±Ø¯Ù ÙÙ Ø§ÙØºØ±ÙØ©' });
+        io.sockets.sockets.get(sid)?.emit('kicked', { message: 'تم طردك من الغرفة' });
         io.sockets.sockets.get(sid)?.disconnect(true);
       }
     });
   });
 
-  // âââ BAN USER âââ (client emits 'ban-user')
+  // ─── BAN USER ─── (client emits 'ban-user')
   socket.on('ban-user', ({ roomId, targetUsername }) => {
     const username = getUser(socket);
     if (!username) return;
@@ -667,73 +667,73 @@ io.on('connection', (socket) => {
     logAudit(roomId, 'member_banned', username, targetUsername);
     activeUsers.forEach((v, sid) => {
       if (v.roomId === roomId && v.username === targetUsername) {
-        io.sockets.sockets.get(sid)?.emit('kicked', { message: 'ØªÙ Ø­Ø¸Ø±Ù ÙÙØ§Ø¦ÙØ§Ù' });
+        io.sockets.sockets.get(sid)?.emit('kicked', { message: 'تم حظرك نهائياً' });
         io.sockets.sockets.get(sid)?.disconnect(true);
       }
     });
   });
 
-  // âââ UNBAN USER âââ (client emits 'unban-user')
+  // ─── UNBAN USER ─── (client emits 'unban-user')
   socket.on('unban-user', ({ roomId, targetUsername }) => {
-ÛÛÝ\Ù\[YHHÙ]\Ù\ÛØÚÙ]
-NÂY
-]\Ù\[YJH]\ÂY
-Z\Ó[ÙÝÙ\Ù]Y[X\ÛJÛÛRY\Ù\[YJJJH]\Â[	ÑSUHÓH[ÈÒTHÛÛWÚYOÈS\Ù\[YOOÉËÜÛÛRY\Ù]\Ù\[YWJNÂÙÐ]Y]
-ÛÛRY	ÛY[X\Ý[[Y	Ë\Ù\[YK\Ù]\Ù\[YJNÂJNÂËÈ8¥ 8¥ 8¥ ÑUTÐTPTSÈ8¥ 8¥ 8¥ ÛØÚÙ]Û	ÜÙ]Y\Ø\X\[ÉË
-ÈÛÛRYZ[]\ÈJHOÂÛÛÝ\Ù\[YHHÙ]\Ù\ÛØÚÙ]
-NÂY
-]\Ù\[YJH]\ÂY
-Z\Ó[ÙÝÙ\Ù]Y[X\ÛJÛÛRY\Ù\[YJJJH]\Â[	ÕTUHÛÛ\ÈÑU\Ø\X\[×ÛZ[]\ÏOÈÒTHYOÉËÛZ[]\ËÛÛRYJNÂ[ËÊÛÛRY
-K[Z]
-	Ù\Ø\X\[ËXÚ[ÙY	ËÈZ[]\ËN\Ù\[YHJNÂÙÐ]Y]
-ÛÛRY	Ù\Ø\X\[×ÜÙ]	Ë\Ù\[YK[	ÛZ[]\ßHZ[
-NÂJNÂËÈ8¥ 8¥ 8¥ TSÈ8¥ 8¥ 8¥ ÛØÚÙ]Û	Ý\[ÉË
-ÈÛÛRYJHOÂÛÛÝ\Ù\[YHHÙ]\Ù\ÛØÚÙ]
-NÂY
-\Ù\[YJHÛØÚÙ]ÊÛÛRY
-K[Z]
-	Ý\Ù\]\[ÉËÈ\Ù\[YHJNÂJNÂÛØÚÙ]Û	ÜÝÜ]\[ÉË
-ÈÛÛRYJHOÂÛÛÝ\Ù\[YHHÙ]\Ù\ÛØÚÙ]
-NÂY
-\Ù\[YJHÛØÚÙ]ÊÛÛRY
-K[Z]
-	Ý\Ù\\ÝÜ]\[ÉËÈ\Ù\[YHJNÂJNÂËÈ8¥ 8¥ 8¥ TÐÓÓPÕ8¥ 8¥ 8¥ ÛØÚÙ]Û	Ù\ØÛÛXÝ	Ë
+�ۜ�\�\��[YHH�]\�\�����]
+NY�
+]\�\��[YJH�]\��Y�
+Z\�[���\��]Y[X�\���J���RY\�\��[YJJJH�]\����[�	�SUH���H�[���T�H���W�YO�S�\�\��[YOO��ܛ��RY\��]\�\��[YWJN��]Y]
+���RY	�Y[X�\��[��[��Y	�\�\��[YK\��]\�\��[YJNJN���8� 8� 8� �UT�TPT�S��8� 8� 8� �����]�ۊ	��]Y\�\X\�[���
+����RYZ[�]\�JHO��ۜ�\�\��[YHH�]\�\�����]
+NY�
+]\�\��[YJH�]\��Y�
+Z\�[���\��]Y[X�\���J���RY\�\��[YJJJH�]\����[�	�TUH���\��U\�\X\�[���Z[�]\�O��T�HYO���Z[�]\����RYJN[˝����RY
+K�[Z]
+	�\�\X\�[��X�[��Y	��Z[�]\��N�\�\��[YHJN��]Y]
+���RY	�\�\X\�[����]	�\�\��[YK�[	�Z[�]\�HZ[�
+NJN���8� 8� 8� TS��8� 8� 8� �����]�ۊ	�\[���
+����RYJHO��ۜ�\�\��[YHH�]\�\�����]
+NY�
+\�\��[YJH����]�����RY
+K�[Z]
+	�\�\�]\[����\�\��[YHJNJN����]�ۊ	���]\[���
+����RYJHO��ۜ�\�\��[YHH�]\�\�����]
+NY�
+\�\��[YJH����]�����RY
+K�[Z]
+	�\�\�\��]\[����\�\��[YHJNJN���8� 8� 8� T��ӓ�P�8� 8� 8� �����]�ۊ	�\��ۛ�X�	�
 
-HOÂÛÛÝHHXÝ]U\Ù\ËÙ]
-ÛØÚÙ]Y
-NÂY
-JHÂ[	ÕTUHY[X\ÈÑU\ÝÜÙY[OÈÒTHÛÛWÚYOÈS\Ù\[YOOÉËÓX]ÛÜ]KÝÊ
-KÌL
-KKÛÛRYK\Ù\[YWJNÂ[ËÊKÛÛRY
-K[Z]
-	Ý\Ù\[Y	ËÈ\Ù\[YNK\Ù\[YK[Y\Ý[\X]ÛÜ]KÝÊ
-KÌL
-HJNÂXÝ]U\Ù\Ë[]JÛØÚÙ]Y
-NÂØYØ\ÝÛ[JKÛÛRY
-NÂBJNÂJNÂ[Ý[ÛØYØ\ÝÛ[JÛÛRY
-HÂÛÛÝÛ[HH×NÂXÝ]U\Ù\ËÜXXÚ
-OÈY
-ÛÛRYOOHÛÛRY	[Û[K[ÛY\Ê\Ù\[YJJHÛ[K\Ú
-\Ù\[YJNÈJNÂ[ËÊÛÛRY
-K[Z]
-	ÛÛ[K]\Ù\ÉËÛ[JNÂBØÙ\ÜËÛ	ÔÒQÒS	Ë
+HO��ۜ�HHX�]�U\�\�˙�]
+����]�Y
+NY�
+JH��[�	�TUHY[X�\���U\���Y[�O��T�H���W�YO�S�\�\��[YOO���X]���܊]K����
+K�L
+KK����RYK�\�\��[YWJN[˝�K����RY
+K�[Z]
+	�\�\�[Y�	��\�\��[YN�K�\�\��[YK[Y\�[\�X]���܊]K����
+K�L
+HJNX�]�U\�\�˙[]J����]�Y
+N���Y�\�ۛ[�JK����RY
+NB�JNJN��[��[ۈ���Y�\�ۛ[�J���RY
+H�ۜ�ۛ[�HH�NX�]�U\�\�˙�ܑXX�
+�O��Y�
+�����RYOOH���RY	��[ۛ[�K�[��Y\���\�\��[YJJHۛ[�K�\�
+��\�\��[YJN�JN[˝����RY
+K�[Z]
+	�ۛ[�K]\�\���ۛ[�JNB�����\�˛ۊ	��Q�S�	�
 
-HOÈY
-HØ]Q
-NÈØÙ\ÜË^]
+HO��Y�
+�H�]�Q�
+N����\�˙^]
 
-NÈJNÂØÙ\ÜËÛ	ÔÒQÕTIË
+N�JN���\�˛ۊ	��Q�T�I�
 
-HOÈY
-HØ]Q
-NÈØÙ\ÜË^]
+HO��Y�
+�H�]�Q�
+N����\�˙^]
 
-NÈJNÂÛÛÝÔHØÙ\ÜË[ÔÌÂ[]
-K[
+N�JN��ۜ�ԕH���\�˙[���ԕ�[�]�
+K�[�
 
-HOÂÙ\\\Ý[Ô
+HO��\��\��\�[�ԕ
 
-HOÛÛÛÛKÙÊÙ\\[[ÈÛÜ	ÔÔX
-JNÂJKØ]Ú
-HOÈÛÛÛÛK\Ü	Ñ[]Z[YËJNÈØÙ\ÜË^]
-JNÈJNÂ
+HO��ۜ��K����\��\��[��[��ۈܝ	�ԕX
+JNJK��]�
+HO���ۜ��K�\��܊	��[�]�Z[Y��JN����\�˙^]
+JN�JN�
